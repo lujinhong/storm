@@ -44,7 +44,9 @@ public class KafkaSpout extends BaseRichSpout {
 
     SpoutConfig _spoutConfig;
     SpoutOutputCollector _collector;
+    //用于获取这个task应该负责哪些分区
     PartitionCoordinator _coordinator;
+    //用于获取某个分区的SimpleConsumer对象
     DynamicPartitionConnections _connections;
     ZkState _state;
 
@@ -61,6 +63,7 @@ public class KafkaSpout extends BaseRichSpout {
         _collector = collector;
         String topologyInstanceId = context.getStormId();
         Map stateConf = new HashMap(conf);
+        //kafka在zk中的位置 OR 拓扑state在zk中的位置???
         List<String> zkServers = _spoutConfig.zkServers;
         if (zkServers == null) {
             zkServers = (List<String>) conf.get(Config.STORM_ZOOKEEPER_SERVERS);
@@ -69,8 +72,10 @@ public class KafkaSpout extends BaseRichSpout {
         if (zkPort == null) {
             zkPort = ((Number) conf.get(Config.STORM_ZOOKEEPER_PORT)).intValue();
         }
+        
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_SERVERS, zkServers);
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_PORT, zkPort);
+        //topic信息与事务信息都放在了这个目录。单独开来好吗？到集群运行试试。
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_ROOT, _spoutConfig.zkRoot);
         _state = new ZkState(stateConf);
 
@@ -126,12 +131,14 @@ public class KafkaSpout extends BaseRichSpout {
 
     @Override
     public void nextTuple() {
+    		//获取这个task要处理哪些分区，然后对每个分区数据开始处理
         List<PartitionManager> managers = _coordinator.getMyManagedPartitions();
         for (int i = 0; i < managers.size(); i++) {
 
             try {
                 // in case the number of managers decreased
                 _currPartitionIndex = _currPartitionIndex % managers.size();
+                //发送消息，下面慢慢分析。？？？？？？？？？？
                 EmitState state = managers.get(_currPartitionIndex).next(_collector);
                 if (state != EmitState.EMITTED_MORE_LEFT) {
                     _currPartitionIndex = (_currPartitionIndex + 1) % managers.size();
